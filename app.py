@@ -17,8 +17,11 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'global-heritage-ai-secret-2026')
 
 # Supports PostgreSQL automatically on Render if DATABASE_URL is set, otherwise uses local SQLite
-db_url = os.environ.get('DATABASE_URL', 'sqlite:///heritage_platform.db')
-if db_url.startswith("postgres://"):
+
+db_url = os.environ.get('DATABASE_URL', '').strip()
+if not db_url:
+    db_url = 'sqlite:///heritage_platform.db'
+elif db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
