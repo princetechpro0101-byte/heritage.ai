@@ -1,0 +1,12 @@
+flask
+flask-sqlalchemy
+flask-login
+werkzeug
+requests
+beautifulsoup4
+feedparser
+groq
+ddgs
+apscheduler
+gunicorn
+psycopg2-binary
