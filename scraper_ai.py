@@ -1,94 +1,126 @@
 """
-Project: Global Heritage Scholars AI
+Project: HeritageAI — Global Cultural Heritage Scholarships
 Project Owner: Dr. Noel Biseko Lwoga
 Contact: noelight79@gmail.com | 0784756363
-Module: Multi-Source AI Scholarship Gatherer (Groq AI + RSS + Web Scrapers)
+Module: Live Internet Search + RSS + Direct Scrapers + Groq AI Extractor
 """
 
+import os
 import json
 import time
 import requests
 import feedparser
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+from ddgs import DDGS
 from groq import Groq
 
-# Requires GROQ_API_KEY in environment variables
-client = Groq()
+# 1. LIVE GLOBAL INTERNET SEARCH QUERIES
+LIVE_SEARCH_QUERIES = [
+    "cultural heritage scholarship fellowship open applications",
+    "archaeology museum studies grant scholarship international",
+    "UNESCO ICCROM ICOM heritage conservation fellowship apply",
+    "world heritage management PhD masters scholarship funded",
+    "historic preservation cultural conservation grant open"
+]
 
-# 1. RSS FEEDS & GOOGLE ALERTS
-RSS_AND_ALERT_FEEDS = [
+# 2. GLOBAL RSS & GOOGLE NEWS FEEDS
+RSS_FEEDS = [
     "https://unesco.org",
     "https://iccrom.org",
     "https://icom.museum",
+    "https://google.com",
+    "https://google.com"
 ]
 
-# 2. GLOBAL HERITAGE BODIES & UNIVERSITY ARCHAEOLOGY/HERITAGE DEPARTMENTS
+# 3. DIRECT HERITAGE INSTITUTIONS & UNIVERSITY DEPARTMENTS
 DIRECT_WEB_SOURCES = [
-    # Major Global Heritage Organizations
     "https://getty.edu",
     "https://iccrom.org",
     "https://unesco.org",
-    "https://icom.museum",
     "https://wmf.org",
     "https://awhf.net",
-    "https://britishmuseum.org",
     "https://si.edu",
     "https://wennergren.org",
-    
-    # University Archaeology & Heritage Departments
     "https://ox.ac.uk",
-    "https://cam.ac.uk",
-    "https://ucl.ac.uk",
-    "https://universiteitleiden.nl",
-    "https://udsm.ac.tz"
+    "https://ucl.ac.uk"
 ]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 }
 
-FALLBACK_IMAGE = "https://unsplash.com"
+HERITAGE_IMAGES = [
+    "https://unsplash.com",
+    "https://unsplash.com",
+    "https://unsplash.com",
+    "https://unsplash.com"
+]
 
 def extract_images(soup, base_url):
-    """Extracts valid photo URLs from a webpage so every scholarship card has a picture."""
+    """Finds real photos from the webpage."""
     urls = []
     for img in soup.find_all('img', src=True):
         src = img['src']
         if any(ext in src.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
             full_url = urljoin(base_url, src)
-            if not any(skip in full_url.lower() for skip in ['logo', 'icon', 'avatar', 'spinner']):
+            if not any(skip in full_url.lower() for skip in ['logo', 'icon', 'avatar', 'spinner', 'pixel']):
                 urls.append(full_url)
-    return urls[:8]
+    return urls[:6]
 
-def parse_scholarships_with_ai(source_url, raw_text, available_images):
-    """Uses Groq (Llama 3.3 70B) to extract scholarship details, contacts, locations, and images."""
+def fetch_page_content(url):
+    """Downloads a webpage and cleans its text and images."""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        images = extract_images(soup, url)
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+            tag.decompose()
+        clean_text = soup.get_text(separator=' ', strip=True)
+        return clean_text, images
+    except Exception:
+        return "", []
+
+def analyze_with_groq(source_url, raw_text, available_images):
+    """Uses Groq AI (Llama 3.3 70B) safely to extract active/ongoing scholarships."""
+    if not raw_text or len(raw_text) < 150:
+        return []
+
+    api_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not api_key:
+        print("[AI Warning] GROQ_API_KEY is not set in environment variables.")
+        return []
+
+    client = Groq(api_key=api_key)
+
     prompt = f"""
-    You are a global cultural heritage scholarship researcher for Global Heritage Scholars AI (Owned by Dr. Noel Biseko Lwoga).
-    Analyze the text below from: {source_url}
+    You are an expert global scholarship researcher for HeritageAI (Owned by Dr. Noel Biseko Lwoga).
+    Analyze the webpage content below from: {source_url}
 
-    Extract EVERY active or upcoming scholarship, fellowship, grant, or funded training opportunity in:
-    - Cultural Heritage, Conservation & Restoration
+    Extract ONLY active, ongoing, or upcoming scholarships, fellowships, research grants, or funded training programs in:
+    - Cultural Heritage, Conservation & Historic Preservation
     - Archaeology, Anthropology & Paleontology
     - Museum Studies, Curatorial Work & Archival Science
     - World Heritage Site Management
 
+    Ignore expired programs from past years.
     Return ONLY a valid JSON array of objects with these exact keys:
-    - "title": Full official title of the scholarship/fellowship
-    - "organization": Host university, museum, or global heritage body
-    - "location": Exact City and Country (or "Global / Multiple Locations")
-    - "image_url": Select the best matching photo URL from {available_images}. If none fit, use "{FALLBACK_IMAGE}"
-    - "summary": 2-sentence overview of who it is for and what it covers
-    - "full_details": Complete breakdown of eligibility, funding (tuition, flights, stipend), duration, and application steps
+    - "title": Official title of the scholarship/fellowship
+    - "organization": Host university, museum, or heritage body
+    - "location": Exact City and Country (or "Global / International")
+    - "image_url": Pick the best photo URL from {available_images} or use "{HERITAGE_IMAGES}"
+    - "summary": 2-sentence summary of who can apply and what is funded
+    - "full_details": Detailed eligibility, funding coverage (tuition, travel, stipend), and application instructions
     - "contact_email": Official contact email found in text (or "See official portal")
     - "contact_phone": Official phone number found in text (or "Not listed")
-    - "apply_url": Direct application or program URL (use "{source_url}" if no deeper link exists)
-    - "deadline": Application closing date (or "Rolling / Check Official Site")
+    - "apply_url": Direct URL to the opportunity (use "{source_url}")
+    - "deadline": Application deadline date (or "Ongoing / Check Official Portal")
 
-    If no scholarships, grants, or fellowships exist in the text, return [].
+    If no active/ongoing opportunities are found, return [].
 
-    Text to analyze:
-    {raw_text[:15000]}
+    Content:
+    {raw_text[:14000]}
     """
 
     try:
@@ -97,10 +129,10 @@ def parse_scholarships_with_ai(source_url, raw_text, available_images):
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1
         )
-        clean_json = response.choices[0].message.content.strip().removeprefix("```json").removesuffix("```").strip()
+        clean_json = response.choices.message.content.strip().removeprefix("```json").removesuffix("```").strip()
         return json.loads(clean_json)
     except Exception as e:
-        print(f"[AI Parse Warning] {source_url}: {e}")
+        print(f"[AI Parse Error] {source_url}: {e}")
         return []
 
 def run_full_global_scan(app, db, Scholarship):
